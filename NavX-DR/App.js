@@ -127,7 +127,7 @@ export default function App() {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" />
       <View style={styles.header}>
-        <Text style={styles.title}>SmartNav</Text>
+        <Text style={styles.title}>NavX-DR</Text>
         <Text style={styles.subtitle}>
           Dead Reckoning with Simple Calibration
         </Text>
