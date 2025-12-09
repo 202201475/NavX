@@ -153,36 +153,6 @@ npx react-native run-android
 
 ---
 
-# **Performance Analysis**
-
-## Rectangular Path (~10 m)
-
-| Metric | True | DR | SLAM |
-|--------|------|-----|-------|
-| Path Length | 10.0 m | 14.2 m | 10.5 m |
-| End–Start Offset | 0 m | 3.1 m | 0.3 m |
-| Shape | Rectangle | Distorted | Nearly rectangle |
-
-**Observations:**  
-- DR yaw drift → outward curved trajectory  
-- SLAM nearly closes loop  
-
----
-
-## Loop Path (~8 m)
-
-- **DR:** ~11 m (35% overestimation)  
-- **SLAM:** ~8.4 m (~5% error)  
-
-SLAM remains stable around textured regions; DR diverges outward.
-
----
-
-# **Screenshots & Figures**  
-(Insert images such as DR path, SLAM path, overlay, point cloud)
-
----
-
 # **Learnings & Technical Insights**
 
 ### Technical
