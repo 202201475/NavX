@@ -83,10 +83,10 @@ samples: ${pointsCount}`;
     <ViroARScene 
       ref={sceneRef} 
       displayPointCloud={{
-        imageSource: require("../res/pointCloudDot.png"), // path from js/ to res/
-        imageScale: [0.02, 0.02, 0.02] as any,            // size of each dot
-        maxPoints: 3000,                                  // density of cloud
-  }} 
+        imageSource: require("../res/pointCloudDot.png"),
+        imageScale: [0.012, 0.012, 0.012] as any,  // smaller, sharper
+        maxPoints: 20000,                          // ARKit supports more           
+      }} 
     >
       {/* HUD that follows camera and always faces it */}
       <ViroNode
@@ -111,4 +111,3 @@ samples: ${pointsCount}`;
 };
 
 export default SLAMScene;
-

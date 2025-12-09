@@ -12,7 +12,7 @@ import { Accelerometer, Gyroscope } from "expo-sensors";
 import Svg, { Polyline, Rect } from "react-native-svg";
 
 export default function App() {
-  // Raw sensor values
+  // Raw sensor values (for display only)
   const [accel, setAccel] = useState({ x: 0, y: 0, z: 0 });
   const [gyro, setGyro] = useState({ x: 0, y: 0, z: 0 });
 
@@ -20,14 +20,22 @@ export default function App() {
   const [isTracking, setIsTracking] = useState(false);
   const [path, setPath] = useState([{ x: 0, y: 0 }]); // list of positions
 
-  // Calibration (bias / gravity offset)
+  // Total distance travelled (for display)
+  const [totalDistance, setTotalDistance] = useState(0);
+  const totalDistanceRef = useRef(0);
+
+  // Calibration (bias / gravity offset in phone frame)
   const [bias, setBias] = useState({ x: 0, y: 0, z: 0 });
   const biasRef = useRef({ x: 0, y: 0, z: 0 });
 
   // Refs for DR integration
-  const velocityRef = useRef({ vx: 0, vy: 0 });
-  const positionRef = useRef({ x: 0, y: 0 });
+  const velocityRef = useRef({ vx: 0, vy: 0 }); // world-frame velocity
+  const positionRef = useRef({ x: 0, y: 0 });   // world-frame position
   const lastTimeRef = useRef(null);
+
+  // Gyro ref and heading (yaw angle in radians)
+  const gyroRef = useRef({ x: 0, y: 0, z: 0 });
+  const headingRef = useRef(0); // 0 = initial heading
 
   useEffect(() => {
     Accelerometer.setUpdateInterval(50); // 20 Hz
@@ -42,6 +50,7 @@ export default function App() {
 
     const gyroSub = Gyroscope.addListener((data) => {
       setGyro(data);
+      gyroRef.current = data; // store latest gyro sample
     });
 
     return () => {
@@ -50,7 +59,7 @@ export default function App() {
     };
   }, [isTracking]);
 
-  // Simple dead-reckoning integration with bias removal
+  // Simple dead-reckoning integration with bias removal + yaw heading
   const updateDeadReckoning = (accelData) => {
     const now = Date.now();
     if (lastTimeRef.current == null) {
@@ -58,34 +67,78 @@ export default function App() {
       return;
     }
     const dt = (now - lastTimeRef.current) / 1000; // seconds
+    if (dt <= 0) return;
     lastTimeRef.current = now;
 
-    // Subtract calibration bias (gravity + sensor offset)
-    const ax = accelData.x - biasRef.current.x;
-    const ay = accelData.y - biasRef.current.y;
+    // --- 1) Update heading from gyro (yaw around vertical axis) ---
+    const yawRate = gyroRef.current.z || 0; // rad/s
+    headingRef.current += yawRate * dt;
+    // keep angle in [-pi, pi] range (optional)
+    if (headingRef.current > Math.PI) headingRef.current -= 2 * Math.PI;
+    if (headingRef.current < -Math.PI) headingRef.current += 2 * Math.PI;
 
-    // Update velocity
-    const { vx, vy } = velocityRef.current;
-    const newVx = vx + ax * dt;
-    const newVy = vy + ay * dt;
-    velocityRef.current = { vx: newVx, vy: newVy };
+    // --- 2) Subtract calibration bias in phone frame (x,y only) ---
+    const axBody = accelData.x - biasRef.current.x;
+    const ayBody = accelData.y - biasRef.current.y;
+    // (We ignore z for DR and assume phone is roughly flat.)
 
-    // Update position
-    const { x, y } = positionRef.current;
-    const newX = x + newVx * dt;
-    const newY = y + newVy * dt;
-    positionRef.current = { x: newX, y: newY };
+    // --- 3) Rotate accel from phone frame to world frame using heading ---
+    const cosH = Math.cos(headingRef.current);
+    const sinH = Math.sin(headingRef.current);
 
-    // Add to path for drawing
-    setPath((prev) => [...prev, { x: newX, y: newY }]);
+    const axWorld = axBody * cosH - ayBody * sinH;
+    const ayWorld = axBody * sinH + ayBody * cosH;
+
+    // --- 4) Integrate velocity in world frame ---
+    let { vx, vy } = velocityRef.current;
+    vx += axWorld * dt;
+    vy += ayWorld * dt;
+
+    // simple damping to avoid unbounded growth from noise
+    const damping = 0.98;
+    vx *= damping;
+    vy *= damping;
+
+    // (no hard speed clamp here; we want smoother path)
+    velocityRef.current = { vx, vy };
+
+    // --- 5) Integrate position in world frame ---
+    let { x, y } = positionRef.current;
+    x += vx * dt;
+    y += vy * dt;
+    positionRef.current = { x, y };
+
+    // --- 6) Append to path if moved enough ---
+    // Use functional setPath so we always use the latest path
+    setPath((prev) => {
+      const last = prev[prev.length - 1] || { x: 0, y: 0 };
+      const dx = x - last.x;
+      const dy = y - last.y;
+      const dist = Math.hypot(dx, dy);
+
+      // threshold ~ 0.005 m (0.5 cm) so path grows more smoothly
+      if (dist > 0.005) {
+        // update total distance travelled
+        totalDistanceRef.current += dist;
+        setTotalDistance(totalDistanceRef.current);
+        return [...prev, { x, y }];
+      }
+      return prev;
+    });
   };
 
-  const handleStart = () => {
-    // Reset and start tracking
+  const resetState = () => {
     velocityRef.current = { vx: 0, vy: 0 };
     positionRef.current = { x: 0, y: 0 };
     lastTimeRef.current = null;
+    headingRef.current = 0;
+    totalDistanceRef.current = 0;
+    setTotalDistance(0);
     setPath([{ x: 0, y: 0 }]);
+  };
+
+  const handleStart = () => {
+    resetState();
     setIsTracking(true);
   };
 
@@ -96,10 +149,7 @@ export default function App() {
 
   const handleReset = () => {
     setIsTracking(false);
-    velocityRef.current = { vx: 0, vy: 0 };
-    positionRef.current = { x: 0, y: 0 };
-    lastTimeRef.current = null;
-    setPath([{ x: 0, y: 0 }]);
+    resetState();
   };
 
   const handleCalibrate = () => {
@@ -113,7 +163,7 @@ export default function App() {
   // Convert path to SVG polyline points
   const width = 260;
   const height = 260;
-  const SCALE = 8;
+  const SCALE = 8; // meters -> pixels (tune as needed)
 
   const svgPoints = path
     .map((p) => {
@@ -185,16 +235,24 @@ export default function App() {
             )}
           </Svg>
         </View>
+
+        {/* Total distance travelled */}
+        <Text style={styles.sectionTitle}>Estimated Distance Travelled</Text>
+        <Text style={styles.valueText}>
+          {totalDistance.toFixed(2)} m
+        </Text>
+
         <Text style={styles.plotInfo}>
           1) Hold phone flat and still, press{" "}
           <Text style={{ fontWeight: "600" }}>Calibrate</Text>.{"\n"}
           2) Then press <Text style={{ fontWeight: "600" }}>Start</Text> and
-          walk a small path.{"\n"}
+          walk a small path (rectangle / loop).{"\n"}
           3) Press <Text style={{ fontWeight: "600" }}>Stop</Text>.{"\n\n"}
           We subtract the measured gravity/sensor bias from subsequent IMU
-          readings before integrating. This reduces constant offset and makes
-          the trajectory slightly more realistic, but some drift still remains,
-          which we later compare against SLAM/ARKit.
+          readings and rotate the acceleration into a world frame using gyro
+          yaw before integrating. This makes the trajectory more realistic
+          (you will see a distorted version of your rectangular / circular
+          path), although drift still accumulates over time.
         </Text>
 
         {/* Calibration values */}
@@ -206,7 +264,7 @@ export default function App() {
         </Text>
 
         {/* Live IMU values */}
-        <Text style={styles.sectionTitle}>Live Accelerometer (m/s²)</Text>
+        <Text style={styles.sectionTitle}>Live Accelerometer (m/s² or g)</Text>
         <Text style={styles.valueText}>
           x: {accel.x.toFixed(3)}{"\n"}
           y: {accel.y.toFixed(3)}{"\n"}
