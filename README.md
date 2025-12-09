@@ -17,8 +17,6 @@ The project demonstrates how drift grows in inertial DR, why orientation estimat
 - Usage  
 - System Architecture  
 - Concepts Applied  
-- Performance Analysis  
-- Screenshots & Figures  
 - Learnings & Technical Insights  
 - Contributors
 
